@@ -1,0 +1,237 @@
+---
+title: "Prediction Assignment Writeup"
+author: "Andreas Chaniotis"
+date: "09/01/2022"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Load libraries
+
+```{r}
+library(caret)
+library(doParallel)
+```
+
+## Read data and clean NAs and delete variables we that we will not use
+
+-   set NA if NA, or division by zero or no character or just space or no character.
+
+```{r read files}
+TrainFile<-"pml-training.csv" 
+TestFile<-"pml-testing.csv"  
+training <- read.csv(TrainFile, header=T , na.strings=c("NA", "#DIV/0!",""," "))
+testing  <- read.csv(TestFile,  header=T , na.strings=c("NA", "#DIV/0!",""," "))
+# str(training)
+dim(training)
+```
+
+Exploring and clean data - find columns that has Nas more than 80%
+
+```{r}
+NAcolums <-  which(colSums(is.na(training))>0.80*dim(training)[1]) 
+training <- training[,-NAcolums]
+testing <- testing[,-NAcolums]
+dim(training)
+```
+
+Remove columns with Nearly Zero Variance
+
+```{r}
+NZV <- nearZeroVar(training)
+training <- training[, -NZV]
+testing  <- testing[, -NZV]
+dim(training)
+```
+
+Delete also variables that are not relevant to use (the Window variable was not clear what exactly is doing (also could not find the documentation and as it is clearly not measurement we decide also to delete) )
+
+```{r}
+training <- training[,-c(1:6)]
+testing <- testing[,-c(1:6)]
+dim(training)
+```
+
+Check if there are Na values in our training in order to conside a methodology to impute the NAs
+
+```{r}
+sum(is.na(training))
+```
+
+```{r}
+## Converting "classe" variable into factor
+training$classe <- as.factor(training$classe)
+```
+
+## Partitioning the training set into training and validation sets
+
+```{r}
+set.seed(2022)
+training = data.frame(training)
+inTrain <- createDataPartition(training$classe, p=0.75, list=F)
+tr_set <- training[inTrain, ]
+val_set <- training[-inTrain, ]
+```
+
+## Building Model
+
+Setting up the trainControl()
+
+We will use Cross Validation with 10 folds.
+
+```{r}
+# Define the training control (cross validation 5 folds )
+ctrl <- trainControl( method = 'cv', number = 10, allowParallel=T) 
+```
+
+We will test 4 different models.
+
+1.  CART (Classification And Regression Tree)
+
+```{r }
+cart_m     <-
+    train(
+        classe ~ .,
+        data = tr_set,
+        method = "rpart",
+        trControl = ctrl,
+        metric = "Accuracy",
+        preProc=c("center","scale")
+    )   # Classification And Regression Tree
+
+```
+
+```{r}
+cart_v <- predict(cart_m, val_set)
+cart_CM <- confusionMatrix(val_set$classe, cart_v)
+cart_CM$overall[1]     #CART
+```
+
+
+2.  LDA (Linear Discriminant Analysis)
+
+```{r }
+
+lda_m      <-
+    train(
+        classe ~ .,
+        data = tr_set,
+        method = "lda",
+        trControl = ctrl,
+        metric = "Accuracy",
+        preProc=c("center","scale"),
+        verbose=FALSE
+    )   # Linear Discriminant Analysis
+
+```
+
+```{r}
+lda_v <- predict(lda_m, val_set)
+lda_CM <- confusionMatrix(val_set$classe, lda_v)
+lda_CM$overall[1]     #LDA
+```
+
+
+3.  GBP (Stochastic Gradient Boosting)
+
+```{r ,cache=TRUE}
+# cluster <- makeCluster(16)
+# registerDoParallel(cluster)
+gbm_m      <-
+    train(
+        classe ~ .,
+        data = tr_set,
+        method = "gbm",
+        trControl = ctrl,
+        metric = "Accuracy",
+        preProc=c("center","scale"),
+        verbose=FALSE
+     )   # Stochastic Gradient Boosting
+# stopCluster(cluster)
+```
+
+```{r}
+gbm_v <- predict(gbm_m, val_set)
+gbm_CM <- confusionMatrix(val_set$classe, gbm_v)
+gbm_CM$overall[1]       #GBP
+```
+
+
+4.  RF (Random Forest)
+
+```{r ,cache=TRUE}
+# cluster <- makeCluster(16)
+# registerDoParallel(cluster)
+rf_m       <-
+    train(
+        classe ~ .,
+        data = tr_set,
+        method = "rf",
+        trControl = ctrl,
+        metric = "Accuracy",
+        preProc=c("center","scale"),
+        verbose=FALSE
+    )   # Random Forest
+# stopCluster(cluster)
+```
+
+```{r}
+rf_v <- predict(rf_m, val_set)
+rf_CM <- confusionMatrix(val_set$classe, rf_v)
+rf_CM$overall[1]        #RF
+```
+
+
+## Summary of the accuracy of the models
+
+
+| Model                                     | Accuracy                       |
+|-------------------------------------------|--------------------------------|
+| CART (Classification And Regression Tree) |  `r cart_CM$overall[1]`        |
+| LDA (Linear Discriminant Analysis)        |  `r lda_CM$overall[1]`         |
+| GBP (Stochastic Gradient Boosting)        |  `r gbm_CM$overall[1]`         |
+| RF (Random Forest)                        |  `r rf_CM$overall[1]`          |
+
+Looking the accuracy of the 4 models, the best performing model is random forest.
+
+## Prediction of the test file
+We will use the random forest fit so as to predict the test output.
+```{r}
+rf_testing <- predict(rf_m, testing)
+rf_testing 
+```
+
+## Appendix
+
+Confusion Matrices:
+1.  CART (Classification And Regression Tree)
+
+```{r}
+cart_CM    #CART
+```
+
+
+2.  LDA (Linear Discriminant Analysis)
+
+```{r}
+lda_CM   #LDA
+```
+
+
+3.  GBP (Stochastic Gradient Boosting)
+
+```{r}
+gbm_CM       #GBP
+```
+
+
+4.  RF (Random Forest)
+
+```{r}
+rf_CM       #RF
+```
